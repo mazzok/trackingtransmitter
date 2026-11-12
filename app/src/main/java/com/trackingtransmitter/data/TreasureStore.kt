@@ -14,8 +14,8 @@ class TreasureStore(private val file: File, private val clock: () -> Long = Syst
     val treasures: StateFlow<List<Treasure>> = _treasures
 
     @Synchronized
-    fun add(name: String, position: LatLon): Treasure {
-        val t = Treasure(UUID.randomUUID().toString(), name, position, clock())
+    fun add(name: String, position: LatLon, waypoints: List<LatLon> = emptyList()): Treasure {
+        val t = Treasure(UUID.randomUUID().toString(), name, position, clock(), waypoints)
         update { listOf(t) + it }
         return t
     }
@@ -44,7 +44,10 @@ class TreasureStore(private val file: File, private val clock: () -> Long = Syst
             val arr = JSONArray(file.readText())
             List(arr.length()) { i ->
                 val o = arr.getJSONObject(i)
-                Treasure(o.getString("id"), o.getString("name"), LatLon(o.getDouble("lat"), o.getDouble("lon")), o.getLong("createdAt"))
+                // "waypoints" is missing in files from before waypoints existed
+                val wps = o.optJSONArray("waypoints") ?: JSONArray()
+                val waypoints = List(wps.length()) { j -> wps.getJSONObject(j).let { LatLon(it.getDouble("lat"), it.getDouble("lon")) } }
+                Treasure(o.getString("id"), o.getString("name"), LatLon(o.getDouble("lat"), o.getDouble("lon")), o.getLong("createdAt"), waypoints)
             }
         }
     } catch (e: Exception) {
@@ -56,7 +59,10 @@ class TreasureStore(private val file: File, private val clock: () -> Long = Syst
     private fun save(list: List<Treasure>) {
         val arr = JSONArray()
         list.forEach {
-            arr.put(JSONObject().put("id", it.id).put("name", it.name).put("lat", it.position.lat).put("lon", it.position.lon).put("createdAt", it.createdAt))
+            val wps = JSONArray()
+            it.waypoints.forEach { w -> wps.put(JSONObject().put("lat", w.lat).put("lon", w.lon)) }
+            arr.put(JSONObject().put("id", it.id).put("name", it.name).put("lat", it.position.lat).put("lon", it.position.lon).put("createdAt", it.createdAt)
+                .put("waypoints", wps))
         }
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(arr.toString())

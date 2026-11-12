@@ -31,16 +31,21 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.MultiPoint
 import org.maplibre.geojson.Point
 import org.maplibre.geojson.Polygon
 
 private const val USER_SRC = "user"
 private const val CONE_SRC = "cone"
 private const val TREASURE_SRC = "treasure"
+private const val WAYPOINTS_SRC = "waypoints"
+private const val ROUTE_SRC = "route"
 private const val FOLLOW_ZOOM = 17.0
 private val GERMANY_CENTER = LatLon(51.16, 10.45)
 private const val GERMANY_ZOOM = 5.0
@@ -56,9 +61,21 @@ private fun coneFeatures(user: LatLon?, headingDeg: Double?): FeatureCollection 
 private fun pointFeatures(p: LatLon?): FeatureCollection =
     if (p == null) FeatureCollection.fromFeatures(emptyList()) else FeatureCollection.fromFeature(Feature.fromGeometry(point(p)))
 
+private fun waypointFeatures(waypoints: List<LatLon>): FeatureCollection =
+    if (waypoints.isEmpty()) FeatureCollection.fromFeatures(emptyList())
+    else FeatureCollection.fromFeature(Feature.fromGeometry(MultiPoint.fromLngLats(waypoints.map(::point))))
+
+/** The search order as a line: waypoints, then the treasure (when set). */
+private fun routeFeatures(waypoints: List<LatLon>, treasure: LatLon?): FeatureCollection {
+    val stops = waypoints + listOfNotNull(treasure)
+    return if (stops.size < 2) FeatureCollection.fromFeatures(emptyList())
+    else FeatureCollection.fromFeature(Feature.fromGeometry(LineString.fromLngLats(stops.map(::point))))
+}
+
 /**
  * North-up map with the user (blue dot plus view cone along [headingDeg]) and, only when [treasure] is non-null,
- * a red treasure dot. Pass null for [treasure] wherever the treasure must stay hidden.
+ * a red treasure dot, plus orange [waypoints] joined to it by a dashed line in search order.
+ * Pass null for [treasure] and no [waypoints] wherever they must stay hidden.
  */
 @Composable
 fun TreasureMap(
@@ -69,6 +86,7 @@ fun TreasureMap(
     followUser: Boolean,
     initialCenter: LatLon?,
     onTap: ((LatLon) -> Unit)?,
+    waypoints: List<LatLon> = emptyList(),
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -124,10 +142,20 @@ fun TreasureMap(
             m.setStyle(Style.Builder().fromJson(MapStyle.json())) { s ->
                 if (disposed.get()) return@setStyle
                 s.addSource(GeoJsonSource(CONE_SRC))
+                s.addSource(GeoJsonSource(ROUTE_SRC))
+                s.addSource(GeoJsonSource(WAYPOINTS_SRC))
                 s.addSource(GeoJsonSource(TREASURE_SRC))
                 s.addSource(GeoJsonSource(USER_SRC))
                 s.addLayer(FillLayer("cone-fill", CONE_SRC).withProperties(
                     PropertyFactory.fillColor("#0066CC"), PropertyFactory.fillOpacity(0.3f),
+                ))
+                s.addLayer(LineLayer("route-line", ROUTE_SRC).withProperties(
+                    PropertyFactory.lineColor("#E65100"), PropertyFactory.lineWidth(3f),
+                    PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
+                ))
+                s.addLayer(CircleLayer("waypoint-dot", WAYPOINTS_SRC).withProperties(
+                    PropertyFactory.circleColor("#FB8C00"), PropertyFactory.circleRadius(7f),
+                    PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(2f),
                 ))
                 s.addLayer(CircleLayer("treasure-dot", TREASURE_SRC).withProperties(
                     PropertyFactory.circleColor("#D32F2F"), PropertyFactory.circleRadius(8f),
@@ -148,9 +176,11 @@ fun TreasureMap(
         s.getSourceAs<GeoJsonSource>(CONE_SRC)?.setGeoJson(coneFeatures(user, headingDeg))
     }
 
-    LaunchedEffect(style, treasure) {
+    LaunchedEffect(style, treasure, waypoints) {
         val s = style ?: return@LaunchedEffect
         s.getSourceAs<GeoJsonSource>(TREASURE_SRC)?.setGeoJson(pointFeatures(treasure))
+        s.getSourceAs<GeoJsonSource>(WAYPOINTS_SRC)?.setGeoJson(waypointFeatures(waypoints))
+        s.getSourceAs<GeoJsonSource>(ROUTE_SRC)?.setGeoJson(routeFeatures(waypoints, treasure))
     }
 
     LaunchedEffect(map, user, followUser) {

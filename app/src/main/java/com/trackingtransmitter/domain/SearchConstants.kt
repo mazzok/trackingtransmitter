@@ -13,3 +13,6 @@ const val NEAR_MIN_INTERVAL_MS = 80
 const val FAR_HZ = 600.0
 const val NEAR_HZ = 1600.0
 const val FAR_DISTANCE_M = 300.0
+
+/** Beep loudness at [FAR_DISTANCE_M] and beyond, in dB below full volume; it rises to 0 dB at [FOUND_RADIUS_M]. */
+const val FAR_VOLUME_DB = -18.0

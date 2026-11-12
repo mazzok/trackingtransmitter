@@ -33,6 +33,7 @@ private class FakeDevice(override val headingSensor: HeadingSensor = HeadingSens
     var beeping = false
     var beepStarts = 0
     var celebrations = 0
+    var waypointChimes = 0
     var signal: (() -> BeaconSignal?)? = null
 
     override fun fixes(): Flow<Fix> = fixFlow
@@ -48,6 +49,9 @@ private class FakeDevice(override val headingSensor: HeadingSensor = HeadingSens
     override fun celebrate() {
         celebrations++
     }
+    override fun reachWaypoint() {
+        waypointChimes++
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -57,7 +61,9 @@ class SearchViewModelTest {
     private val treasure = Treasure("t1", "Schatz 1", target, 0L)
     private val app: Application get() = ApplicationProvider.getApplicationContext()
 
-    @Before fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
+    private val dispatcher = UnconfinedTestDispatcher()
+
+    @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun atTarget() = Fix(target, 5f)
@@ -125,6 +131,44 @@ class SearchViewModelTest {
         vm.resume()
         assertFalse(device.beeping)
         assertEquals(1, device.celebrations)
+    }
+
+    private val waypoint = LatLon(48.2, 11.5)
+    private val withWaypoint = Treasure("t2", "Schatz 2", target, 0L, listOf(waypoint))
+
+    @Test fun waypointReached_chimesThenBeepsOnTowardsTreasure() {
+        val device = FakeDevice()
+        val vm = SearchViewModel(app, withWaypoint, device)
+        assertEquals(1, vm.waypointCount)
+        vm.resume()
+        repeat(4) { device.fixFlow.tryEmit(Fix(waypoint, 5f)) }
+        assertEquals(1, vm.leg.value)
+        assertEquals(1, device.waypointChimes)
+        assertEquals(0, device.celebrations)
+        assertFalse(device.beeping)
+        dispatcher.scheduler.advanceTimeBy(5_000)
+        assertTrue(device.beeping)
+        repeat(3) { device.fixFlow.tryEmit(atTarget()) }
+        assertEquals(SearchState.Found, vm.state.value)
+        assertEquals(1, device.celebrations)
+        assertEquals(1, device.waypointChimes)
+    }
+
+    @Test fun pauseDuringWaypointChime_staysSilent() {
+        val device = FakeDevice()
+        val vm = SearchViewModel(app, withWaypoint, device)
+        vm.resume()
+        repeat(4) { device.fixFlow.tryEmit(Fix(waypoint, 5f)) }
+        vm.pause()
+        dispatcher.scheduler.advanceTimeBy(5_000)
+        assertFalse(device.beeping)
+    }
+
+    @Test fun routeText_perLeg() {
+        assertEquals(null, routeText(0, 0))
+        assertEquals("Suche Wegpunkt 1 von 2", routeText(0, 2))
+        assertEquals("Wegpunkt 1 erreicht! Weiter zu Wegpunkt 2 von 2", routeText(1, 2))
+        assertEquals("Alle Wegpunkte gefunden – jetzt zum Schatz!", routeText(2, 2))
     }
 
     @Test fun unknownTreasure_doesNothing() {

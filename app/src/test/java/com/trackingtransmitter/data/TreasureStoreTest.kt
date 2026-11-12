@@ -34,4 +34,14 @@ class TreasureStoreTest {
     @Test fun newestFirst() { var now = 1L; val s = TreasureStore(tmp.newFile().apply { delete() }) { now++ }
         s.add("alt", LatLon(0.0, 0.0)); s.add("neu", LatLon(0.0, 0.0))
         assertEquals(listOf("neu", "alt"), s.treasures.value.map { it.name }) }
+    @Test fun waypoints_reloadInOrder() { val f = tmp.newFile(); f.delete()
+        val wps = listOf(LatLon(48.0, 11.0), LatLon(48.2, 11.2))
+        TreasureStore(f).add("A", LatLon(48.1, 11.5), wps)
+        val t = TreasureStore(f).treasures.value.single()
+        assertEquals(wps, t.waypoints)
+        assertEquals(wps + LatLon(48.1, 11.5), t.route) }
+    @Test fun oldFile_withoutWaypoints_loads() { val f = tmp.newFile()
+        f.writeText("""[{"id":"x","name":"Alt","lat":1.0,"lon":2.0,"createdAt":3}]""")
+        val t = TreasureStore(f).treasures.value.single()
+        assertEquals("Alt", t.name); assertTrue(t.waypoints.isEmpty()) }
 }

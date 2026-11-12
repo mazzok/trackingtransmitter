@@ -16,13 +16,14 @@ import kotlin.math.sin
 
 internal const val SAMPLE_RATE = 44_100
 
-/** Sine tone as 16 bit mono PCM with linear fades at both ends against clicks. */
-internal fun sineTone(frequencyHz: Double, durationMs: Int, fadeMs: Int = 5): ShortArray {
+/** Sine tone as 16 bit mono PCM with linear fades at both ends against clicks; [volume] is a gain 0..1. */
+internal fun sineTone(frequencyHz: Double, durationMs: Int, fadeMs: Int = 5, volume: Double = 1.0): ShortArray {
+    val gain = volume.coerceIn(0.0, 1.0) * 0.8
     val n = SAMPLE_RATE * durationMs / 1000
     val fade = (SAMPLE_RATE * fadeMs / 1000).coerceAtMost(n / 2).coerceAtLeast(1)
     return ShortArray(n) { i ->
         val env = minOf(1.0, i.toDouble() / fade, (n - 1 - i).toDouble() / fade)
-        (sin(2 * PI * frequencyHz * i / SAMPLE_RATE) * env * Short.MAX_VALUE * 0.8).toInt().toShort()
+        (sin(2 * PI * frequencyHz * i / SAMPLE_RATE) * env * Short.MAX_VALUE * gain).toInt().toShort()
     }
 }
 
@@ -49,7 +50,7 @@ internal fun newToneTrack(): AudioTrack = AudioTrack.Builder()
     )
     .build()
 
-/** Plays beeps at the pace of the latest [BeaconSignal]; the signal is re-read before every beep. */
+/** Plays beeps at the pace, pitch and loudness of the latest [BeaconSignal]; the signal is re-read before every beep. */
 class BeepPlayer {
     private var job: Job? = null
 
@@ -68,7 +69,7 @@ class BeepPlayer {
                         continue
                     }
                     val begin = System.nanoTime()
-                    track.write(sineTone(s.frequencyHz, BEEP_MS), 0, SAMPLE_RATE * BEEP_MS / 1000)
+                    track.write(sineTone(s.frequencyHz, BEEP_MS, volume = s.volume), 0, SAMPLE_RATE * BEEP_MS / 1000)
                     // Re-read the signal while waiting so turning takes effect before the old interval ends.
                     while (isActive) {
                         val current = readSignal(signal) ?: break

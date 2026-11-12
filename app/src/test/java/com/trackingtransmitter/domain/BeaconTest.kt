@@ -20,6 +20,16 @@ class BeaconTest {
         assertEquals(1600.0, beaconSignal(2.0, 0.0).frequencyHz, 0.01)
         assertTrue(beaconSignal(50.0, 0.0).frequencyHz > beaconSignal(100.0, 0.0).frequencyHz)
     }
+    @Test fun volume_farAndNear() {
+        assertEquals(1.0, beaconSignal(2.0, 0.0).volume, 1e-9)
+        assertEquals(1.0, beaconSignal(5.0, 180.0).volume, 1e-9)
+        assertEquals(Math.pow(10.0, FAR_VOLUME_DB / 20), beaconSignal(1000.0, 0.0).volume, 1e-9)
+    }
+    @Test fun volume_risesWhenCloser_independentOfDirection() {
+        val volumes = listOf(300.0, 200.0, 100.0, 50.0, 20.0, 10.0, 5.0).map { beaconSignal(it, 90.0).volume }
+        assertEquals(volumes.sorted(), volumes)
+        assertEquals(beaconSignal(50.0, 0.0).volume, beaconSignal(50.0, 180.0).volume, 0.0)
+    }
     @Test fun nanDeviation_countsAsFacingAway() = assertEquals(1500, beaconSignal(100.0, Double.NaN).intervalMs)
     @Test fun nanDistance_countsAsFar() = assertEquals(beaconSignal(FAR_DISTANCE_M, 0.0), beaconSignal(Double.NaN, 0.0))
 }

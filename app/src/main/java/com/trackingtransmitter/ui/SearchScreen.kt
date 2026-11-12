@@ -50,7 +50,7 @@ import com.trackingtransmitter.sensors.HeadingSensor
 
 private const val HOLD_TO_END_MS = 1_000L
 
-/** The search: the map never shows the treasure, only the user and their view cone. */
+/** The search: the map never shows the treasure or the waypoints, only the user and their view cone. */
 @Composable
 fun SearchScreen(vm: SearchViewModel, onExit: () -> Unit) {
     when {
@@ -137,6 +137,7 @@ private fun ActiveSearch(vm: SearchViewModel, onExit: () -> Unit) {
                 val user by vm.user.collectAsState()
                 val heading by vm.mapHeading.collectAsState()
                 val needsCalibration by vm.needsCalibration.collectAsState()
+                val leg by vm.leg.collectAsState()
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         TreasureMap(
@@ -152,6 +153,8 @@ private fun ActiveSearch(vm: SearchViewModel, onExit: () -> Unit) {
                             Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            val route = routeText(leg, vm.waypointCount)
+                            if (route != null && state != SearchState.Found) RouteInfo(route)
                             if (volumeOff) Hint("Lautstärke ist aus – bitte lauter stellen.", onDismiss = { volumeOff = false })
                             if (needsCalibration) Hint("Kompass ungenau – Handy in Form einer 8 schwenken.")
                         }
@@ -179,6 +182,18 @@ private fun ActiveSearch(vm: SearchViewModel, onExit: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RouteInfo(text: String) {
+    Surface(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shadowElevation = 4.dp,
+    ) {
+        Text(text, Modifier.padding(12.dp), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
     }
 }
 
