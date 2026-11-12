@@ -15,14 +15,9 @@ class BeaconTest {
     @Test fun atFoundRadius_isVeryFast_evenFacingAway() = assertEquals(80, beaconSignal(5.0, 180.0).intervalMs)
     @Test fun nearZone_speedsUpWithoutDirection() =
         assertTrue(beaconSignal(8.0, 180.0).intervalMs < beaconSignal(14.0, 180.0).intervalMs)
-    @Test fun pitch_facingAndAway() {
-        assertEquals(1600.0, beaconSignal(100.0, 0.0).frequencyHz, 0.01)
-        assertEquals(600.0, beaconSignal(100.0, 180.0).frequencyHz, 0.01)
-    }
-    @Test fun pitch_risesWhenTurningTowards_independentOfDistance() {
-        val pitches = (180 downTo 0 step 10).map { beaconSignal(100.0, it.toDouble()).frequencyHz }
-        assertEquals(pitches.sorted(), pitches)
-        assertEquals(beaconSignal(1000.0, 30.0).frequencyHz, beaconSignal(6.0, 30.0).frequencyHz, 0.0)
+    @Test fun pitch_neverChanges() {
+        for (d in listOf(2.0, 10.0, 100.0, 1000.0)) for (dev in listOf(0.0, 90.0, 180.0))
+            assertEquals(BEEP_HZ, beaconSignal(d, dev).frequencyHz, 0.0)
     }
     @Test fun volume_farAndNear() {
         assertEquals(1.0, beaconSignal(2.0, 0.0).volume, 1e-9)
