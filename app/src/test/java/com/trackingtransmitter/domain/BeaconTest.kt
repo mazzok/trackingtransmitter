@@ -12,9 +12,11 @@ class BeaconTest {
         val intervals = (0..180 step 10).map { beaconSignal(100.0, it.toDouble()).intervalMs }
         assertEquals(intervals.sorted(), intervals)
     }
-    @Test fun atFoundRadius_isVeryFast_evenFacingAway() = assertEquals(80, beaconSignal(5.0, 180.0).intervalMs)
-    @Test fun nearZone_speedsUpWithoutDirection() =
-        assertTrue(beaconSignal(8.0, 180.0).intervalMs < beaconSignal(14.0, 180.0).intervalMs)
+    @Test fun pace_dependsOnlyOnDirection() {
+        for (dev in listOf(0.0, 90.0, 180.0))
+            assertEquals(beaconSignal(300.0, dev).intervalMs, beaconSignal(5.0, dev).intervalMs)
+        assertEquals(1500, beaconSignal(5.0, 180.0).intervalMs)
+    }
     @Test fun pitch_neverChanges() {
         for (d in listOf(2.0, 10.0, 100.0, 1000.0)) for (dev in listOf(0.0, 90.0, 180.0))
             assertEquals(BEEP_HZ, beaconSignal(d, dev).frequencyHz, 0.0)

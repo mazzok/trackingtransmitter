@@ -9,8 +9,7 @@ import kotlin.math.roundToInt
 data class BeaconSignal(val intervalMs: Int, val frequencyHz: Double, val volume: Double = 1.0)
 
 /**
- * Direction is heard in the pace: facing the target beeps faster (the pace also speeds up regardless of direction
- * in the near zone). Distance is heard in loudness, rising logarithmically with proximity (evenly in dB, so every
+ * Direction alone is heard in the pace: facing the target beeps faster, at any distance. Distance is heard in loudness, rising logarithmically with proximity (evenly in dB, so every
  * halving of the distance sounds equally much louder). The pitch stays the same.
  * A NaN deviation counts as facing away, a NaN distance as far away.
  */
@@ -18,12 +17,7 @@ fun beaconSignal(distanceM: Double, deviationDeg: Double): BeaconSignal {
     if (deviationDeg.isNaN()) return beaconSignal(distanceM, 180.0)
     if (distanceM.isNaN()) return beaconSignal(FAR_DISTANCE_M, deviationDeg)
     val f = (1 + cos(Math.toRadians(deviationDeg))) / 2
-    val dirInterval = MAX_INTERVAL_MS - f * (MAX_INTERVAL_MS - MIN_INTERVAL_MS)
-    val interval = if (distanceM < NEAR_RADIUS_M) {
-        val t = ((distanceM - FOUND_RADIUS_M) / (NEAR_RADIUS_M - FOUND_RADIUS_M)).coerceIn(0.0, 1.0)
-        val nearInterval = NEAR_MIN_INTERVAL_MS + t * (dirInterval - NEAR_MIN_INTERVAL_MS)
-        minOf(dirInterval, nearInterval)
-    } else dirInterval
+    val interval = MAX_INTERVAL_MS - f * (MAX_INTERVAL_MS - MIN_INTERVAL_MS)
     val d = distanceM.coerceIn(FOUND_RADIUS_M, FAR_DISTANCE_M)
     // 0 at the found radius, 1 at the far distance
     val farness = ln(d / FOUND_RADIUS_M) / ln(FAR_DISTANCE_M / FOUND_RADIUS_M)
