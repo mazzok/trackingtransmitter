@@ -1,0 +1,112 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+}
+
+// CI passes the semantic-release version: ./gradlew assembleRelease -PreleaseVersion=1.4.2
+// versionCode = MAJOR * 1_000_000 + MINOR * 1_000 + PATCH, so it grows with every release and stays
+// below Android's limit of 2_100_000_000.
+val releaseVersion: String? = providers.gradleProperty("releaseVersion").orNull
+
+fun versionCodeOf(version: String): Int {
+    val match = Regex("""(\d+)\.(\d+)\.(\d+)""").matchEntire(version)
+        ?: throw GradleException("releaseVersion must be MAJOR.MINOR.PATCH, got '$version'")
+    val (major, minor, patch) = match.destructured.toList().map { it.toInt() }
+    if (major > 2099 || minor > 999 || patch > 999) {
+        throw GradleException("releaseVersion $version does not fit the versionCode scheme")
+    }
+    return major * 1_000_000 + minor * 1_000 + patch
+}
+
+// The release keystore never lives in the repo; CI writes it from GitHub secrets.
+val keystorePath: String? = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+
+android {
+    namespace = "com.trackingtransmitter"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.trackingtransmitter"
+        minSdk = 34
+        targetSdk = 35
+        versionCode = releaseVersion?.let(::versionCodeOf) ?: 1
+        versionName = releaseVersion ?: "0.1"
+    }
+
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("ANDROID_SIGNING_ALIAS").get()
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").get()
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.findByName("release")
+        }
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+}
+
+val robolectricSdk34: Configuration by configurations.creating
+val robolectricSdk35: Configuration by configurations.creating
+
+dependencies {
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.navigation.compose)
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons)
+    implementation(libs.coroutines.android)
+    implementation(libs.maplibre)
+    implementation(libs.okhttp)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.coroutines.test)
+
+    // sdk=34 from robolectric.properties, and 35 (targetSdk) which Robolectric loads the app package with.
+    // Two configurations, as one would resolve the two versions of the same module down to the newer one.
+    robolectricSdk34("org.robolectric:android-all-instrumented:14-robolectric-10818077-i7") { isTransitive = false }
+    robolectricSdk35("org.robolectric:android-all-instrumented:15-robolectric-12650502-i7") { isTransitive = false }
+}
+
+// Robolectric would download its Android runtimes itself at test time, outside Gradle's cache and retries,
+// so one network hiccup fails every Robolectric test in CI. Gradle fetches them instead, into one folder,
+// and Robolectric runs offline against it.
+val robolectricRuntimeDir = layout.buildDirectory.dir("robolectric-runtime")
+val syncRobolectricRuntime by tasks.registering(Sync::class) {
+    from(robolectricSdk34, robolectricSdk35)
+    into(robolectricRuntimeDir)
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(syncRobolectricRuntime)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", robolectricRuntimeDir.get().asFile.absolutePath)
+}
