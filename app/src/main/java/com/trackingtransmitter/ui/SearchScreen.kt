@@ -44,13 +44,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.trackingtransmitter.data.StopKind
 import com.trackingtransmitter.domain.SearchState
 import com.trackingtransmitter.map.TreasureMap
 import com.trackingtransmitter.sensors.HeadingSensor
 
 private const val HOLD_TO_END_MS = 1_000L
 
-/** The search: the map never shows the treasure or the waypoints, only the user and their view cone. */
+/** The search: the map shows the user and their view cone, but stops and the way walked only once they are found. */
 @Composable
 fun SearchScreen(vm: SearchViewModel, onExit: () -> Unit) {
     when {
@@ -138,13 +139,21 @@ private fun ActiveSearch(vm: SearchViewModel, onExit: () -> Unit) {
                 val heading by vm.mapHeading.collectAsState()
                 val needsCalibration by vm.needsCalibration.collectAsState()
                 val leg by vm.leg.collectAsState()
+                val reached by vm.reached.collectAsState()
+                val walked by vm.walked.collectAsState()
+                val foundCount by vm.foundCount.collectAsState()
+                // only what has been found is drawn, and it stays
+                val found = vm.stops.take(foundCount)
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         TreasureMap(
                             modifier = Modifier.fillMaxSize(),
                             user = user,
                             headingDeg = heading,
-                            treasure = null,
+                            treasures = found.filter { it.kind == StopKind.TREASURE }.map { it.position },
+                            waypoints = found.filter { it.kind == StopKind.WAYPOINT }.map { it.position },
+                            track = walked,
+                            treasuresOpen = true,
                             followUser = true,
                             initialCenter = null,
                             onTap = null,
@@ -153,8 +162,11 @@ private fun ActiveSearch(vm: SearchViewModel, onExit: () -> Unit) {
                             Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            val route = routeText(leg, vm.waypointCount)
+                            val route = routeText(vm.kinds, leg)
                             if (route != null && state != SearchState.Found) RouteInfo(route)
+                            reached?.let { i ->
+                                if (state != SearchState.Found) ReachedCard(reachedTitle(vm.kinds, i), vm.stops[i].message, vm::dismissReached)
+                            }
                             if (volumeOff) Hint("Lautstärke ist aus – bitte lauter stellen.", onDismiss = { volumeOff = false })
                             if (needsCalibration) Hint("Kompass ungenau – Handy in Form einer 8 schwenken.")
                         }
@@ -173,6 +185,8 @@ private fun ActiveSearch(vm: SearchViewModel, onExit: () -> Unit) {
                             ) { Text("Suche Signal…", Modifier.padding(16.dp)) }
                             state == SearchState.Found -> FoundCard(
                                 Modifier.align(Alignment.Center).padding(24.dp),
+                                title = reachedTitle(vm.kinds, vm.stops.lastIndex),
+                                message = vm.stops.last().message,
                                 onDone = onExit,
                                 onContinue = vm::continueSearching,
                             )
@@ -197,6 +211,25 @@ private fun RouteInfo(text: String) {
     }
 }
 
+/** A stop on the way was reached: its headline and the message left there; stays until closed or the next stop. */
+@Composable
+private fun ReachedCard(title: String, message: String, onDismiss: () -> Unit) {
+    Surface(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        shadowElevation = 4.dp,
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodyLarge)
+            }
+            IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Schließen") }
+        }
+    }
+}
+
 @Composable
 private fun Hint(text: String, onDismiss: (() -> Unit)? = null) {
     Surface(
@@ -214,10 +247,11 @@ private fun Hint(text: String, onDismiss: (() -> Unit)? = null) {
 }
 
 @Composable
-private fun FoundCard(modifier: Modifier, onDone: () -> Unit, onContinue: () -> Unit) {
+private fun FoundCard(modifier: Modifier, title: String, message: String, onDone: () -> Unit, onContinue: () -> Unit) {
     Card(modifier) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Gefunden! Der Schatz ist hier irgendwo.", style = MaterialTheme.typography.titleLarge)
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodyLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onContinue) { Text("Weitersuchen") }
                 Button(onClick = onDone) { Text("Fertig") }

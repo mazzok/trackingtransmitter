@@ -2,6 +2,8 @@ package com.trackingtransmitter.ui
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import com.trackingtransmitter.data.Stop
+import com.trackingtransmitter.data.StopKind
 import com.trackingtransmitter.data.Treasure
 import com.trackingtransmitter.domain.BeaconSignal
 import com.trackingtransmitter.domain.Fix
@@ -58,7 +60,7 @@ private class FakeDevice(override val headingSensor: HeadingSensor = HeadingSens
 @RunWith(RobolectricTestRunner::class)
 class SearchViewModelTest {
     private val target = LatLon(48.1, 11.5)
-    private val treasure = Treasure("t1", "Schatz 1", target, 0L)
+    private val treasure = Treasure("t1", "Schatz 1", 0L, listOf(Stop(target, StopKind.TREASURE)))
     private val app: Application get() = ApplicationProvider.getApplicationContext()
 
     private val dispatcher = UnconfinedTestDispatcher()
@@ -134,15 +136,16 @@ class SearchViewModelTest {
     }
 
     private val waypoint = LatLon(48.2, 11.5)
-    private val withWaypoint = Treasure("t2", "Schatz 2", target, 0L, listOf(waypoint))
+    private val withWaypoint = Treasure("t2", "Schatz 2", 0L, listOf(Stop(waypoint, StopKind.WAYPOINT, "Unter der Bank"), Stop(target, StopKind.TREASURE)))
 
     @Test fun waypointReached_chimesThenBeepsOnTowardsTreasure() {
         val device = FakeDevice()
         val vm = SearchViewModel(app, withWaypoint, device)
-        assertEquals(1, vm.waypointCount)
         vm.resume()
         repeat(4) { device.fixFlow.tryEmit(Fix(waypoint, 5f)) }
         assertEquals(1, vm.leg.value)
+        assertEquals(0, vm.reached.value)
+        assertEquals("Unter der Bank", vm.stops[vm.reached.value!!].message)
         assertEquals(1, device.waypointChimes)
         assertEquals(0, device.celebrations)
         assertFalse(device.beeping)
@@ -164,11 +167,81 @@ class SearchViewModelTest {
         assertFalse(device.beeping)
     }
 
+    private val second = LatLon(48.3, 11.5)
+    private val twoTreasures = Treasure("t3", "Jagd", 0L, listOf(Stop(second, StopKind.TREASURE, "Weiter!"), Stop(target, StopKind.TREASURE, "Ende")))
+
+    @Test fun treasureOnTheWay_playsFanfareThenBeepsOn() {
+        val device = FakeDevice()
+        val vm = SearchViewModel(app, twoTreasures, device)
+        vm.resume()
+        repeat(4) { device.fixFlow.tryEmit(Fix(second, 5f)) }
+        assertTrue(vm.state.value is SearchState.Searching)
+        assertEquals(1, device.celebrations)
+        assertEquals(0, device.waypointChimes)
+        assertEquals(0, vm.reached.value)
+        assertFalse(device.beeping)
+        dispatcher.scheduler.advanceTimeBy(5_000)
+        assertTrue(device.beeping)
+        repeat(3) { device.fixFlow.tryEmit(atTarget()) }
+        assertEquals(SearchState.Found, vm.state.value)
+        assertEquals(2, device.celebrations)
+        assertEquals(null, vm.reached.value)
+    }
+
+    @Test fun walkedPath_showsOnlyOnceAStopIsFound() {
+        val device = FakeDevice()
+        val vm = SearchViewModel(app, withWaypoint, device)
+        vm.resume()
+        device.fixFlow.tryEmit(Fix(LatLon(48.15, 11.5), 5f))
+        device.fixFlow.tryEmit(Fix(LatLon(48.18, 11.5), 5f))
+        assertTrue(vm.walked.value.isEmpty())
+        repeat(3) { device.fixFlow.tryEmit(Fix(waypoint, 5f)) }
+        assertEquals(listOf(LatLon(48.15, 11.5), LatLon(48.18, 11.5), waypoint), vm.walked.value)
+        device.fixFlow.tryEmit(Fix(LatLon(48.15, 11.5), 5f))
+        assertEquals(3, vm.walked.value.size)
+        repeat(3) { device.fixFlow.tryEmit(atTarget()) }
+        assertEquals(target, vm.walked.value.last())
+    }
+
+    @Test fun dismissReached_hidesCard() {
+        val device = FakeDevice()
+        val vm = SearchViewModel(app, withWaypoint, device)
+        vm.resume()
+        repeat(4) { device.fixFlow.tryEmit(Fix(waypoint, 5f)) }
+        vm.dismissReached()
+        assertEquals(null, vm.reached.value)
+    }
+
+    @Test fun foundCount_growsPerStop_andStaysAfterContinueSearching() {
+        val device = FakeDevice()
+        val vm = SearchViewModel(app, withWaypoint, device)
+        vm.resume()
+        device.fixFlow.tryEmit(Fix(LatLon(48.15, 11.5), 5f))
+        assertEquals(0, vm.foundCount.value)
+        repeat(3) { device.fixFlow.tryEmit(Fix(waypoint, 5f)) }
+        assertEquals(1, vm.foundCount.value)
+        repeat(3) { device.fixFlow.tryEmit(atTarget()) }
+        assertEquals(2, vm.foundCount.value)
+        vm.continueSearching()
+        assertEquals(2, vm.foundCount.value)
+    }
+
     @Test fun routeText_perLeg() {
-        assertEquals(null, routeText(0, 0))
-        assertEquals("Suche Wegpunkt 1 von 2", routeText(0, 2))
-        assertEquals("Wegpunkt 1 erreicht! Weiter zu Wegpunkt 2 von 2", routeText(1, 2))
-        assertEquals("Alle Wegpunkte gefunden – jetzt zum Schatz!", routeText(2, 2))
+        val w = StopKind.WAYPOINT
+        val t = StopKind.TREASURE
+        assertEquals(null, routeText(listOf(t), 0))
+        assertEquals("Suche Wegpunkt 1 von 2", routeText(listOf(w, w, t), 0))
+        assertEquals("Suche Wegpunkt 2 von 2", routeText(listOf(w, w, t), 1))
+        assertEquals("Jetzt zum Schatz!", routeText(listOf(w, w, t), 2))
+        assertEquals("Suche Schatz 2 von 2", routeText(listOf(t, w, t), 2))
+    }
+
+    @Test fun reachedTitle_perKind() {
+        val w = StopKind.WAYPOINT
+        val t = StopKind.TREASURE
+        assertEquals("Wegpunkt 2 erreicht!", reachedTitle(listOf(w, w, t), 1))
+        assertEquals("Gefunden! Der Schatz ist hier irgendwo.", reachedTitle(listOf(w, t), 1))
+        assertEquals("Schatz 1 von 2 gefunden!", reachedTitle(listOf(t, w, t), 0))
     }
 
     @Test fun unknownTreasure_doesNothing() {

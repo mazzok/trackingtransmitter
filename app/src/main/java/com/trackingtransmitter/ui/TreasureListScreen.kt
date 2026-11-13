@@ -45,6 +45,13 @@ private val DATE_FORMAT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
 
 internal fun waypointCountText(n: Int): String = if (n == 1) "1 Wegpunkt" else "$n Wegpunkte"
 
+internal fun treasureCountText(n: Int): String = if (n == 1) "1 Schatz" else "$n Schätze"
+
+/** "2 Wegpunkte · 3 Schätze"; null for a plain single treasure. */
+internal fun stopCountText(waypoints: Int, treasures: Int): String? =
+    if (waypoints == 0 && treasures == 1) null
+    else listOfNotNull(waypointCountText(waypoints).takeIf { waypoints > 0 }, treasureCountText(treasures)).joinToString(" · ")
+
 private fun formatDate(ms: Long): String = DATE_FORMAT.format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,8 +108,7 @@ private fun TreasureRow(t: Treasure, selected: Boolean, onSelect: () -> Unit, on
     ) {
         Column(Modifier.weight(1f)) {
             Text(t.name, style = MaterialTheme.typography.titleMedium)
-            val details = if (t.waypoints.isEmpty()) formatDate(t.createdAt)
-            else "${formatDate(t.createdAt)} · ${waypointCountText(t.waypoints.size)}"
+            val details = listOfNotNull(formatDate(t.createdAt), stopCountText(t.waypointCount, t.treasureCount)).joinToString(" · ")
             Text(details, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
         IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Löschen") }

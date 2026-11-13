@@ -9,6 +9,9 @@ import kotlin.concurrent.thread
 
 private val FANFARE = listOf(1046.5 to 150, 1318.5 to 150, 1568.0 to 150, 2093.0 to 500) // C6 E6 G6 C7
 
+/** How long [celebrate] sounds, so the beeper can wait for it after a treasure that is not the last stop. */
+val FANFARE_MS: Long = FANFARE.sumOf { it.second }.toLong()
+
 /** "Ding-dong-ding": clearly different from the beeps and shorter than the fanfare. */
 internal val WAYPOINT_CHIME = listOf(1568.0 to 120, 1174.7 to 120, 1568.0 to 260) // G6 D6 G6
 

@@ -14,8 +14,8 @@ class TreasureStore(private val file: File, private val clock: () -> Long = Syst
     val treasures: StateFlow<List<Treasure>> = _treasures
 
     @Synchronized
-    fun add(name: String, position: LatLon, waypoints: List<LatLon> = emptyList()): Treasure {
-        val t = Treasure(UUID.randomUUID().toString(), name, position, clock(), waypoints)
+    fun add(name: String, stops: List<Stop>): Treasure {
+        val t = Treasure(UUID.randomUUID().toString(), name, clock(), stops)
         update { listOf(t) + it }
         return t
     }
@@ -44,10 +44,7 @@ class TreasureStore(private val file: File, private val clock: () -> Long = Syst
             val arr = JSONArray(file.readText())
             List(arr.length()) { i ->
                 val o = arr.getJSONObject(i)
-                // "waypoints" is missing in files from before waypoints existed
-                val wps = o.optJSONArray("waypoints") ?: JSONArray()
-                val waypoints = List(wps.length()) { j -> wps.getJSONObject(j).let { LatLon(it.getDouble("lat"), it.getDouble("lon")) } }
-                Treasure(o.getString("id"), o.getString("name"), LatLon(o.getDouble("lat"), o.getDouble("lon")), o.getLong("createdAt"), waypoints)
+                Treasure(o.getString("id"), o.getString("name"), o.getLong("createdAt"), loadStops(o))
             }
         }
     } catch (e: Exception) {
@@ -56,13 +53,28 @@ class TreasureStore(private val file: File, private val clock: () -> Long = Syst
         emptyList()
     }
 
+    private fun latLon(o: JSONObject) = LatLon(o.getDouble("lat"), o.getDouble("lon"))
+
+    private fun loadStops(o: JSONObject): List<Stop> {
+        val stops = o.optJSONArray("stops")
+        if (stops != null) return List(stops.length()) { j ->
+            val s = stops.getJSONObject(j)
+            Stop(latLon(s), StopKind.valueOf(s.getString("kind")), s.optString("message"))
+        }
+        // older files: optional "waypoints" plus the treasure at the top level
+        val wps = o.optJSONArray("waypoints") ?: JSONArray()
+        return List(wps.length()) { j -> Stop(latLon(wps.getJSONObject(j)), StopKind.WAYPOINT) } +
+            Stop(latLon(o), StopKind.TREASURE)
+    }
+
     private fun save(list: List<Treasure>) {
         val arr = JSONArray()
         list.forEach {
-            val wps = JSONArray()
-            it.waypoints.forEach { w -> wps.put(JSONObject().put("lat", w.lat).put("lon", w.lon)) }
-            arr.put(JSONObject().put("id", it.id).put("name", it.name).put("lat", it.position.lat).put("lon", it.position.lon).put("createdAt", it.createdAt)
-                .put("waypoints", wps))
+            val stops = JSONArray()
+            it.stops.forEach { s ->
+                stops.put(JSONObject().put("lat", s.position.lat).put("lon", s.position.lon).put("kind", s.kind.name).put("message", s.message))
+            }
+            arr.put(JSONObject().put("id", it.id).put("name", it.name).put("createdAt", it.createdAt).put("stops", stops))
         }
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(arr.toString())

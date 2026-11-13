@@ -6,9 +6,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.trackingtransmitter.SchatzApp
 import com.trackingtransmitter.audio.BeepPlayer
+import com.trackingtransmitter.audio.FANFARE_MS
 import com.trackingtransmitter.audio.WAYPOINT_CHIME_MS
 import com.trackingtransmitter.audio.celebrate
 import com.trackingtransmitter.audio.reachWaypoint
+import com.trackingtransmitter.data.Stop
+import com.trackingtransmitter.data.StopKind
 import com.trackingtransmitter.data.Treasure
 import com.trackingtransmitter.domain.BeaconSignal
 import com.trackingtransmitter.domain.Fix
@@ -16,6 +19,7 @@ import com.trackingtransmitter.domain.HeadingThrottle
 import com.trackingtransmitter.domain.LatLon
 import com.trackingtransmitter.domain.SearchController
 import com.trackingtransmitter.domain.SearchState
+import com.trackingtransmitter.domain.distanceM
 import com.trackingtransmitter.sensors.HeadingSensor
 import com.trackingtransmitter.sensors.HeadingSource
 import com.trackingtransmitter.sensors.LocationSource
@@ -53,17 +57,34 @@ private class PhoneSearchDevice(private val app: Application) : SearchDevice {
     override fun reachWaypoint() = reachWaypoint(app)
 }
 
-/** What the search screen says about the route; null for a treasure without waypoints. */
-internal fun routeText(leg: Int, waypointCount: Int): String? = when {
-    waypointCount == 0 -> null
-    leg == 0 -> "Suche Wegpunkt 1 von $waypointCount"
-    leg < waypointCount -> "Wegpunkt $leg erreicht! Weiter zu Wegpunkt ${leg + 1} von $waypointCount"
-    else -> "Alle Wegpunkte gefunden – jetzt zum Schatz!"
+/** Number of stop [index] among the stops of its kind, and how many of that kind there are. */
+private fun numbering(kinds: List<StopKind>, index: Int): Pair<Int, Int> {
+    val kind = kinds[index]
+    return kinds.take(index + 1).count { it == kind } to kinds.count { it == kind }
+}
+
+/** What the search screen says about the stop being searched; null for a hunt with a single treasure. */
+internal fun routeText(kinds: List<StopKind>, leg: Int): String? {
+    if (kinds.size < 2) return null
+    val (nr, total) = numbering(kinds, leg)
+    return when (kinds[leg]) {
+        StopKind.WAYPOINT -> "Suche Wegpunkt $nr von $total"
+        StopKind.TREASURE -> if (total == 1) "Jetzt zum Schatz!" else "Suche Schatz $nr von $total"
+    }
+}
+
+/** Headline once stop [index] is reached. */
+internal fun reachedTitle(kinds: List<StopKind>, index: Int): String {
+    val (nr, total) = numbering(kinds, index)
+    return when (kinds[index]) {
+        StopKind.WAYPOINT -> "Wegpunkt $nr erreicht!"
+        StopKind.TREASURE -> if (total == 1) "Gefunden! Der Schatz ist hier irgendwo." else "Schatz $nr von $total gefunden!"
+    }
 }
 
 /**
  * Runs one search: fixes drive the controller, the heading drives the beeper. A null [treasure] (deleted) does nothing.
- * Reaching a waypoint pauses the beeps for its chime, then they lead to the next stop.
+ * Reaching a stop on the way pauses the beeps for its sound (chime for a waypoint, fanfare for a treasure), then they lead on.
  */
 class SearchViewModel internal constructor(
     app: Application,
@@ -75,9 +96,20 @@ class SearchViewModel internal constructor(
 
     private val controller = treasure?.let { SearchController(it.route) }
     val treasureKnown: Boolean = controller != null
-    val waypointCount: Int = treasure?.waypoints?.size ?: 0
-    /** Index of the stop being searched: 0 until [waypointCount] - 1 are waypoints, [waypointCount] is the treasure. */
+    val stops: List<Stop> = treasure?.stops ?: emptyList()
+    val kinds: List<StopKind> = stops.map { it.kind }
+    /** Index into [stops] of the stop being searched. */
     val leg: StateFlow<Int> = controller?.leg ?: MutableStateFlow(0)
+    private val _reached = MutableStateFlow<Int?>(null)
+    /** Index of the stop just reached on the way (never the last one), until dismissed or the next one is reached. */
+    val reached: StateFlow<Int?> = _reached
+    private val trail = mutableListOf<LatLon>()
+    private val _walked = MutableStateFlow<List<LatLon>>(emptyList())
+    /** The path walked up to the stop found last; the way to the stop still being searched stays hidden. */
+    val walked: StateFlow<List<LatLon>> = _walked
+    private val _foundCount = MutableStateFlow(0)
+    /** How many stops, from the first on, have been found; never shrinks, so "Weitersuchen" keeps the last one shown. */
+    val foundCount: StateFlow<Int> = _foundCount
 
     val state: StateFlow<SearchState> = controller?.state ?: MutableStateFlow(SearchState.WaitingForSignal)
     private val _user = MutableStateFlow<LatLon?>(null)
@@ -104,15 +136,31 @@ class SearchViewModel internal constructor(
                     val before = c.state.value
                     val legBefore = c.leg.value
                     c.onFix(fix)
+                    if (c.state.value != SearchState.WaitingForSignal) {
+                        val last = trail.lastOrNull()
+                        if (last == null || distanceM(last, fix.position) >= TRAIL_STEP_M) trail += fix.position
+                    }
+                    if (c.leg.value != legBefore || c.state.value != before && c.state.value == SearchState.Found) {
+                        _walked.value = trail.toList()
+                        _foundCount.value = maxOf(_foundCount.value, c.leg.value + if (c.state.value == SearchState.Found) 1 else 0)
+                    }
                     if (before != SearchState.Found && c.state.value == SearchState.Found) {
+                        _reached.value = null
                         device.stopBeeping()
                         device.celebrate()
                     } else if (c.leg.value != legBefore) {
+                        _reached.value = legBefore
                         device.stopBeeping()
-                        device.reachWaypoint()
+                        val soundMs = if (kinds[legBefore] == StopKind.TREASURE) {
+                            device.celebrate()
+                            FANFARE_MS
+                        } else {
+                            device.reachWaypoint()
+                            WAYPOINT_CHIME_MS
+                        }
                         // a child of the search job, so pausing meanwhile cancels it (resume restarts the beeps itself)
                         search.launch {
-                            delay(WAYPOINT_CHIME_MS + WAYPOINT_PAUSE_MS)
+                            delay(soundMs + STOP_PAUSE_MS)
                             if (c.state.value is SearchState.Searching) startBeeping(c)
                         }
                     }
@@ -134,6 +182,10 @@ class SearchViewModel internal constructor(
         device.stopBeeping()
     }
 
+    fun dismissReached() {
+        _reached.value = null
+    }
+
     fun continueSearching() {
         val c = controller ?: return
         c.continueSearching()
@@ -145,7 +197,9 @@ class SearchViewModel internal constructor(
     override fun onCleared() = pause()
 
     private companion object {
-        /** Silence after the waypoint chime before the beeps lead on. */
-        const val WAYPOINT_PAUSE_MS = 500L
+        /** Silence after a stop's sound before the beeps lead on. */
+        const val STOP_PAUSE_MS = 500L
+        /** GPS jitter below this does not extend the walked path. */
+        const val TRAIL_STEP_M = 2.0
     }
 }
