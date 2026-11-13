@@ -57,29 +57,19 @@ private class PhoneSearchDevice(private val app: Application) : SearchDevice {
     override fun reachWaypoint() = reachWaypoint(app)
 }
 
-/** Number of stop [index] among the stops of its kind, and how many of that kind there are. */
-private fun numbering(kinds: List<StopKind>, index: Int): Pair<Int, Int> {
-    val kind = kinds[index]
-    return kinds.take(index + 1).count { it == kind } to kinds.count { it == kind }
+/** Number of stop [index] among the stops of its kind. */
+private fun numberOf(kinds: List<StopKind>, index: Int): Int = kinds.take(index + 1).count { it == kinds[index] }
+
+/** What the search screen says about the stop being searched; never tells how many stops follow. */
+internal fun routeText(kinds: List<StopKind>, leg: Int): String = when (kinds[leg]) {
+    StopKind.WAYPOINT -> "Suche Wegpunkt ${numberOf(kinds, leg)}"
+    StopKind.TREASURE -> "Suche Schatz ${numberOf(kinds, leg)}"
 }
 
-/** What the search screen says about the stop being searched; null for a hunt with a single treasure. */
-internal fun routeText(kinds: List<StopKind>, leg: Int): String? {
-    if (kinds.size < 2) return null
-    val (nr, total) = numbering(kinds, leg)
-    return when (kinds[leg]) {
-        StopKind.WAYPOINT -> "Suche Wegpunkt $nr von $total"
-        StopKind.TREASURE -> if (total == 1) "Jetzt zum Schatz!" else "Suche Schatz $nr von $total"
-    }
-}
-
-/** Headline once stop [index] is reached. */
-internal fun reachedTitle(kinds: List<StopKind>, index: Int): String {
-    val (nr, total) = numbering(kinds, index)
-    return when (kinds[index]) {
-        StopKind.WAYPOINT -> "Wegpunkt $nr erreicht!"
-        StopKind.TREASURE -> if (total == 1) "Gefunden! Der Schatz ist hier irgendwo." else "Schatz $nr von $total gefunden!"
-    }
+/** Headline once stop [index] on the way is reached; never tells how many stops follow. */
+internal fun reachedTitle(kinds: List<StopKind>, index: Int): String = when (kinds[index]) {
+    StopKind.WAYPOINT -> "Wegpunkt ${numberOf(kinds, index)} erreicht!"
+    StopKind.TREASURE -> "Schatz ${numberOf(kinds, index)} gefunden!"
 }
 
 /**

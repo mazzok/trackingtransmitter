@@ -229,19 +229,19 @@ class SearchViewModelTest {
     @Test fun routeText_perLeg() {
         val w = StopKind.WAYPOINT
         val t = StopKind.TREASURE
-        assertEquals(null, routeText(listOf(t), 0))
-        assertEquals("Suche Wegpunkt 1 von 2", routeText(listOf(w, w, t), 0))
-        assertEquals("Suche Wegpunkt 2 von 2", routeText(listOf(w, w, t), 1))
-        assertEquals("Jetzt zum Schatz!", routeText(listOf(w, w, t), 2))
-        assertEquals("Suche Schatz 2 von 2", routeText(listOf(t, w, t), 2))
+        assertEquals("Suche Schatz 1", routeText(listOf(t), 0))
+        assertEquals("Suche Wegpunkt 1", routeText(listOf(w, w, t), 0))
+        assertEquals("Suche Wegpunkt 2", routeText(listOf(w, w, t), 1))
+        assertEquals("Suche Schatz 1", routeText(listOf(w, w, t), 2))
+        assertEquals("Suche Schatz 2", routeText(listOf(t, w, t), 2))
     }
 
     @Test fun reachedTitle_perKind() {
         val w = StopKind.WAYPOINT
         val t = StopKind.TREASURE
         assertEquals("Wegpunkt 2 erreicht!", reachedTitle(listOf(w, w, t), 1))
-        assertEquals("Gefunden! Der Schatz ist hier irgendwo.", reachedTitle(listOf(w, t), 1))
-        assertEquals("Schatz 1 von 2 gefunden!", reachedTitle(listOf(t, w, t), 0))
+        assertEquals("Schatz 1 gefunden!", reachedTitle(listOf(t, w, t), 0))
+        assertEquals("Schatz 2 gefunden!", reachedTitle(listOf(t, w, t), 2))
     }
 
     @Test fun unknownTreasure_doesNothing() {

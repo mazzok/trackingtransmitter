@@ -162,8 +162,7 @@ private fun ActiveSearch(vm: SearchViewModel, onExit: () -> Unit) {
                             Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            val route = routeText(vm.kinds, leg)
-                            if (route != null && state != SearchState.Found) RouteInfo(route)
+                            if (state != SearchState.Found) RouteInfo(routeText(vm.kinds, leg))
                             reached?.let { i ->
                                 if (state != SearchState.Found) ReachedCard(reachedTitle(vm.kinds, i), vm.stops[i].message, vm::dismissReached)
                             }
@@ -185,7 +184,6 @@ private fun ActiveSearch(vm: SearchViewModel, onExit: () -> Unit) {
                             ) { Text("Suche Signal…", Modifier.padding(16.dp)) }
                             state == SearchState.Found -> FoundCard(
                                 Modifier.align(Alignment.Center).padding(24.dp),
-                                title = reachedTitle(vm.kinds, vm.stops.lastIndex),
                                 message = vm.stops.last().message,
                                 onDone = onExit,
                                 onContinue = vm::continueSearching,
@@ -247,10 +245,10 @@ private fun Hint(text: String, onDismiss: (() -> Unit)? = null) {
 }
 
 @Composable
-private fun FoundCard(modifier: Modifier, title: String, message: String, onDone: () -> Unit, onContinue: () -> Unit) {
+private fun FoundCard(modifier: Modifier, message: String, onDone: () -> Unit, onContinue: () -> Unit) {
     Card(modifier) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text("Gefunden! Der Schatz ist hier irgendwo.", style = MaterialTheme.typography.titleLarge)
             if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodyLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onContinue) { Text("Weitersuchen") }
